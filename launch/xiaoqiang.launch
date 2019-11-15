@@ -1,0 +1,6 @@
+<launch>
+  <node pkg="bw_move_local" type="bw_move_local" name="local_controller">
+  <rosparam file="$(find bw_move_local)/launch/xiaoqiang_params.yaml" command="load" />
+  <remap from="/odom" to="/xqserial_server/Odom" />
+  </node>
+</launch>

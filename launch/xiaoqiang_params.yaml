@@ -1,0 +1,30 @@
+MoveLocal:
+    global_frame: odom
+
+    kp_theta_set: 0.4
+    kd_theta_set: 0.8
+    ki_theta_set: 1.0
+    kp_x_set: 0.4
+    kd_x_set: 0.8
+    ki_x_set: 10.0
+    max_theta_speed: 0.3
+    max_x_speed: 0.2
+    theta_torelance: 0.02
+    x_torelance: 0.02
+
+    use_scan: true
+    bar_y_min: -0.25
+    bar_y_max: 0.25
+
+    bar_x_min: -0.1
+    bar_x_max: 0.25
+
+    filter_x_min: -0.1
+    filter_x_max: 3.0
+    
+    inbox_distance_set: 0.5
+
+    # transform rotation matrix
+    R_laserscan: [-1., 0., 0., -1.]
+    # transform trasition vector
+    T_laserscan: [0.,0.]
