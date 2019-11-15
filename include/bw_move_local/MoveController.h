@@ -83,6 +83,8 @@ class MoveController
     galileo_msg::LocalMoveFeedback feedback_;
     galileo_msg::LocalMoveResult result_;
     galileo_msg::LocalMoveGoal current_goal_;
+    ros::Subscriber sub1_;
+    ros::Subscriber sub2_;
 
     geometry_msgs::Pose mRobot_pose_;
     geometry_msgs::Pose mRobot_pose_last_;
@@ -108,7 +110,7 @@ class MoveController
     double error_theta_sum_;
     double error_x_last_;
     double error_x_sum_;
-    
+
     bool use_scan_;
     double bar_y_min_;
     double bar_y_max_;
@@ -118,7 +120,7 @@ class MoveController
 
     double filter_x_min_;
     double filter_x_max_;
-    
+
     double inbox_distance_set_;
 
     std::vector<double> R_laserscan_;
@@ -133,19 +135,20 @@ class MoveController
     geometry_msgs::PoseStamped robot_pose_;
     geometry_msgs::PoseStamped global_pose_;
     std::string global_frame_;
-    
+
     bool inbox_flag_;
     double inbox_distance_;
 
     ros::Publisher mCmdvelPub_;
 
-    float goal_pose[3];//x y theta 
+    float goal_pose[3];//x y theta
     bool x_goal_reached_;
     bool theta_goal_reached_;
 
     bool move_forward_enable_;
     bool rot_counter_enable_;
     bool rot_uncounter_enable_;
+    bool use_forward_ref_;
 };
 
 }  // namespace bw_auto_dock
