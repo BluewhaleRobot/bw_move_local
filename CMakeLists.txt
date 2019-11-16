@@ -4,6 +4,7 @@ project(bw_move_local)
 add_compile_options(-std=c++11)
 
 find_package(catkin REQUIRED COMPONENTS
+  cmake_modules
   geometry_msgs
   nav_msgs
   roscpp
@@ -15,17 +16,23 @@ find_package(catkin REQUIRED COMPONENTS
   tf2_ros
   galileo_serial_server
   galileo_msg
+  visualization_msgs
 )
 
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy sensor_msgs std_msgs  tf2_ros galileo_msg
+  CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy sensor_msgs std_msgs  tf2_ros galileo_msg visualization_msgs
 )
+
+find_package(Eigen REQUIRED)
 
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
+  ${EIGEN_INCLUDE_DIRS}
 )
+
+add_definitions(${EIGEN_DEFINITIONS})
 
 set(BOOST_LIBS thread date_time system)
 find_package(Boost COMPONENTS ${BOOST_LIBS} REQUIRED)

@@ -44,6 +44,9 @@
 #include <algorithm>
 #include <math.h>
 #include <stdlib.h>
+#include <Eigen/Core>
+
+#include <visualization_msgs/Marker.h>
 
 namespace bw_move_local
 {
@@ -75,6 +78,8 @@ class MoveController
     {
       return x_goal_reached_ && theta_goal_reached_;
     }
+    void filterscan(const sensor_msgs::LaserScan& scan_in);
+    void dealscan();
   private:
     ros::NodeHandle nh_;
     actionlib::SimpleActionServer<galileo_msg::LocalMoveAction> as_; // NodeHandle instance must be created before this line. Otherwise strange error occurs.
@@ -88,12 +93,15 @@ class MoveController
 
     geometry_msgs::Pose mRobot_pose_;
     geometry_msgs::Pose mRobot_pose_last_;
+    geometry_msgs::Pose mRobot_pose_boxedge_;
 
     boost::mutex mMutex_move;
     boost::mutex mMutex_pose;
     boost::mutex mMutex_scan;
 
     DO_STATUS mdo_status_;
+
+    ros::WallTime moving_time_;
 
     double kp_theta_set_;
     double kd_theta_set_;
@@ -149,6 +157,26 @@ class MoveController
     bool rot_counter_enable_;
     bool rot_uncounter_enable_;
     bool use_forward_ref_;
+    bool force_no_ref_;
+
+    std::vector< std::vector<float> > scandata1_;// -pi -1.6
+    std::vector< std::vector<float> > scandata2_; // 1.6 pi
+    int scandata1_num_;
+    int scandata2_num_;
+
+    float angle_min_;
+    float angle_max_;
+    Eigen::ArrayXXd co_sine_map_;
+
+    ros::Publisher marker_pub_;
+
+    bool center23_ready_;
+    bool center14_ready_;
+    bool center_ready_;
+
+    float center23_[3];
+    float center14_[3];
+    float center_[2];
 };
 
 }  // namespace bw_auto_dock

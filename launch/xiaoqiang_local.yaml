@@ -13,16 +13,16 @@ MoveLocal:
     x_torelance: 0.02
 
     use_scan: true
-    bar_y_min: -0.23
-    bar_y_max: 0.23
+    bar_y_min: -0.25
+    bar_y_max: 0.25
 
     bar_x_min: -0.1
-    bar_x_max: 0.20
+    bar_x_max: 0.25
 
     filter_x_min: -0.1
-    filter_x_max: 2.5
+    filter_x_max: 3.0
 
-    inbox_distance_set: 0.3
+    inbox_distance_set: 0.5
 
     # transform rotation matrix
     R_laserscan: [-1., 0., 0., -1.]
