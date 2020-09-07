@@ -2,5 +2,6 @@
   <node pkg="bw_move_local" type="bw_move_local" name="local_controller" respawn="true" respawn_delay="10">
   <rosparam file="$(find bw_move_local)/launch/xiaoqiang_params.yaml" command="load" />
   <remap from="/odom" to="/xqserial_server/Odom" />
+  <remap from="/scan" to="/scan_filtered" />
   </node>
 </launch>

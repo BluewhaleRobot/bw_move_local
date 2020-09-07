@@ -29,6 +29,6 @@ MoveLocal:
     # transform trasition vector
     T_laserscan: [0.,0.]
 
-    use_forward_ref: true #强制后退到前进初始位置
+    use_forward_ref: false #强制后退到前进初始位置
 
     force_no_ref: true #强制不使用激光雷达作为参考
