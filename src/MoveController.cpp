@@ -687,7 +687,7 @@ void MoveController::dealBar()
       {
         ROS_DEBUG("uncounter %f %f",x,y);
         move_forward_enable_ = false;
-        rot_uncounter_enable_ = false; // >0.15
+        //rot_uncounter_enable_ = false; // >0.15
       }
     }
     for(int i =0 ;i<=scandata2_num_ - 1;i++)
@@ -698,7 +698,7 @@ void MoveController::dealBar()
       {
         ROS_DEBUG("counter %f %f",x,y);
         move_forward_enable_ = false;
-        rot_counter_enable_ = false; //<-0.15
+        //rot_counter_enable_ = false; //<-0.15
       }
     }
 }
