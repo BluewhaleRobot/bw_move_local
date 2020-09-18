@@ -26,6 +26,9 @@ catkin_package(
 
 find_package(Eigen REQUIRED)
 
+# fix cannot link liborocos-kdl.so
+list(REMOVE_ITEM catkin_LIBRARIES "/opt/ros/kinetic/lib/liborocos-kdl.so" "/opt/ros/kinetic/lib/liborocos-kdl.so.1.3.0")
+
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
