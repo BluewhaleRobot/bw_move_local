@@ -352,6 +352,9 @@ MoveController::MoveController(std::string name):as_(nh_, name, boost::bind(&Mov
       {
         fSettings["Tbc2Matrix"] >> mTbc_;
         std::cout << mTbc_ <<std::endl;
+        std::stringstream buf_Tbc;
+        buf_Tbc <<"Tbc "<< mTbc_ <<std::endl;
+        ROS_DEBUG("%s",buf_Tbc.str().c_str());
       }
 
       mTcb_ = mTbc_.inv();
