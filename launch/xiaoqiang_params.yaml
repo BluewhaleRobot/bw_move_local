@@ -13,10 +13,10 @@ MoveLocal:
     x_torelance: 0.02
 
     use_scan: true
-    bar_y_min: -0.23
-    bar_y_max: 0.23
+    bar_y_min: -0.28
+    bar_y_max: 0.28
 
-    bar_x_min: -0.1
+    bar_x_min: 0.0
     bar_x_max: 0.20
 
     filter_x_min: -0.1
