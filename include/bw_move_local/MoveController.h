@@ -48,6 +48,10 @@
 
 #include <visualization_msgs/Marker.h>
 
+#include <ar_track_alvar_msgs/AlvarMarker.h>
+#include <ar_track_alvar_msgs/AlvarMarkers.h>
+#include <opencv2/core/core.hpp>
+
 namespace bw_move_local
 {
 
@@ -55,6 +59,7 @@ typedef enum class DO_STATUS
 {
     prepare1,
     rotate1,
+    rotate2,
     linear1,
     complete,
     temp1
@@ -80,7 +85,87 @@ class MoveController
     }
     void filterscan(const sensor_msgs::LaserScan& scan_in);
     void dealscan();
+
+    //二维码相关
+    void updateMarkerPose(const ar_track_alvar_msgs::AlvarMarkers& currentMarkers);
+
+    cv::Mat getTco() //获取当前二维码在摄像头坐标系下的姿态
+    {
+      boost::mutex::scoped_lock lock1(mMutex_armark);
+      boost::mutex::scoped_lock lock2(mMutex_pose);
+      mTco_ =  mTcb_*mTdb_.inv()*mTdo_;
+      return mTco_.clone();
+    }
+
+    cv::Mat getTbo() //获取当前二维码在base_footprint坐标系下的姿态,这个base_footprint在摄像头水平面
+    {
+      boost::mutex::scoped_lock lock1(mMutex_armark);
+      boost::mutex::scoped_lock lock2(mMutex_pose);
+      mTbo_ =  mTdb_.inv()*mTdo_;
+      return mTbo_.clone();
+    }
+
+    cv::Mat getTdb() //获取当前base_footprint在全局d坐标系下的姿态
+    {
+      boost::mutex::scoped_lock lock(mMutex_pose);
+      return mTdb_.clone();
+    }
+
+    cv::Mat getTdo() //获取前二维码在全局d坐标系下的姿态
+    {
+      boost::mutex::scoped_lock lock(mMutex_armark);
+      return mTdo_.clone();
+    }
+
+    void resetTdo_ready()
+    {
+      boost::mutex::scoped_lock lock(mMutex_armark);
+      mTdo_ready_ = false;
+      use_artag_ref_ready_ = false;
+    }
+
+    bool isTdb_ready()
+    {
+      boost::mutex::scoped_lock lock(mMutex_pose);
+      return mPose_flag_;
+    }
+
+    bool isTdo_ready()
+    {
+      boost::mutex::scoped_lock lock(mMutex_armark);
+      return mTdo_ready_;
+    }
+
+    void getArtagError(float & e_theta, float & ar_dist,bool &  online_flag);
+
   private:
+    //d->b->c->o
+    boost::mutex mMutex_armark;
+    ros::WallTime last_odomtime_;
+    ros::WallTime last_armarktime_;
+    bool mTdo_ready_;
+    bool use_artag_ref_ready_;
+    cv::Mat mTco_;
+    cv::Mat mTbo_;
+    cv::Mat mTdb_;
+    cv::Mat mTdo_;
+    cv::Mat mTbc_;
+    cv::Mat mTcb_;
+    cv::Mat mToo_; //偏移点
+    bool force_no_bar_;
+    bool use_artag_ref_;
+    int camera_id_;
+    double artag_line_width_;
+    double artag_min_dist_;
+    double artag_x_offset_;
+    double artag_y_offset_;
+    double kp_line_;
+    double kd_line_;
+    double ki_line_;
+    double kp_angle_;
+    double kd_angle_;
+    double ki_angle_;
+
     ros::NodeHandle nh_;
     actionlib::SimpleActionServer<galileo_msg::LocalMoveAction> as_; // NodeHandle instance must be created before this line. Otherwise strange error occurs.
     std::string action_name_;
@@ -90,6 +175,7 @@ class MoveController
     galileo_msg::LocalMoveGoal current_goal_;
     ros::Subscriber sub1_;
     ros::Subscriber sub2_;
+    ros::Subscriber sub3_;
 
     geometry_msgs::Pose mRobot_pose_;
     geometry_msgs::Pose mRobot_pose_last_;
@@ -177,6 +263,7 @@ class MoveController
     float center23_[3];
     float center14_[3];
     float center_[2];
+    bool mRobot_pose_boxedge_ready_;
 };
 
 }  // namespace bw_auto_dock

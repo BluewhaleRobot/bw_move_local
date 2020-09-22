@@ -24,6 +24,8 @@ catkin_package(
   CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy sensor_msgs std_msgs  tf2_ros galileo_msg visualization_msgs
 )
 
+find_package(OpenCV 3.1.0 REQUIRED)
+
 find_package(Eigen REQUIRED)
 
 # fix cannot link liborocos-kdl.so
@@ -43,7 +45,7 @@ find_package(Threads REQUIRED)
 
 set(SRCS src/main.cpp src/MoveController.cpp )
 add_executable(${PROJECT_NAME} ${SRCS})
-target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBS})
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME ${PROJECT_NAME} PREFIX "")
 
 install(

@@ -5,6 +5,7 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 #define m_pi 3.1415926
+#define MARKER_ID_DETECTION 0
 
 namespace bw_move_local
 {
@@ -217,6 +218,8 @@ MoveController::MoveController(std::string name):as_(nh_, name, boost::bind(&Mov
         sub1_ = nh_.subscribe("/scan", 10, &MoveController::updateScan, this);
     }
     sub2_ = nh_.subscribe("/odom", 10, &MoveController::updateOdom, this);
+
+
     mCmdvelPub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel", 1, true);
     marker_pub_ = nh_.advertise<visualization_msgs::Marker>("/local_move/visualization_marker", 10);
 
@@ -228,6 +231,131 @@ MoveController::MoveController(std::string name):as_(nh_, name, boost::bind(&Mov
     center_ready_ = false;
     center14_ready_ = false;
     center23_ready_ = false;
+    mRobot_pose_boxedge_ready_ = false;
+
+    last_odomtime_ = ros::WallTime::now();
+    last_armarktime_ = ros::WallTime::now();
+    mTdo_ready_ = false;
+    mTco_ = cv::Mat::eye(4, 4, CV_32F);
+    mTbo_ = cv::Mat::eye(4, 4, CV_32F);
+    mTdb_ = cv::Mat::eye(4, 4, CV_32F);
+    mTdo_ = cv::Mat::eye(4, 4, CV_32F);
+    mTbc_ = cv::Mat::eye(4, 4, CV_32F);
+    mTcb_ = cv::Mat::eye(4, 4, CV_32F);
+    mToo_ = cv::Mat::eye(4, 4, CV_32F);
+
+    force_no_bar_ = false;
+    std::string force_no_bar_name;
+    if(private_nh.searchParam("force_no_bar", force_no_bar_name))
+    {
+      private_nh.param(force_no_bar_name, force_no_bar_,false);
+    }
+
+    use_artag_ref_ = false;
+    std::string use_artag_ref_name;
+    if(private_nh.searchParam("use_artag_ref", use_artag_ref_name))
+    {
+      private_nh.param(use_artag_ref_name, use_artag_ref_,false);
+    }
+
+    camera_id_ = 1;
+    std::string camera_id_name;
+    if(private_nh.searchParam("camera_id", camera_id_name))
+    {
+      private_nh.param(camera_id_name, camera_id_,1);
+    }
+
+    artag_line_width_ = 0.1;
+    std::string artag_line_width_name;
+    if(private_nh.searchParam("artag_line_width", artag_line_width_name))
+    {
+      private_nh.param(artag_line_width_name, artag_line_width_,0.1);
+    }
+
+    artag_min_dist_ = 0.1;
+    std::string artag_min_dist_name;
+    if(private_nh.searchParam("artag_min_dist", artag_min_dist_name))
+    {
+      private_nh.param(artag_min_dist_name, artag_min_dist_,0.1);
+    }
+
+    artag_x_offset_ = 0;
+    std::string artag_x_offset_name;
+    if(private_nh.searchParam("artag_x_offset", artag_x_offset_name))
+    {
+      private_nh.param(artag_x_offset_name, artag_x_offset_,0.0);
+    }
+
+    artag_y_offset_ = 0;
+    std::string artag_y_offset_name;
+    if(private_nh.searchParam("artag_y_offset", artag_y_offset_name))
+    {
+      private_nh.param(artag_y_offset_name, artag_y_offset_,0.0);
+    }
+
+    kp_line_ = 0.4;
+    std::string kp_line_name;
+    if(private_nh.searchParam("kp_line", kp_line_name))
+    {
+      private_nh.param(kp_line_name, kp_line_,0.4);
+    }
+
+    kd_line_ = 0.8;
+    std::string kd_line_name;
+    if(private_nh.searchParam("kd_line", kd_line_name))
+    {
+      private_nh.param(kd_line_name, kd_line_,0.8);
+    }
+
+    ki_line_ = 1.0;
+    std::string ki_line_name;
+    if(private_nh.searchParam("ki_line", ki_line_name))
+    {
+      private_nh.param(ki_line_name, ki_line_,1.0);
+    }
+
+    kp_angle_ = 0.4;
+    std::string kp_angle_name;
+    if(private_nh.searchParam("kp_angle", kp_angle_name))
+    {
+      private_nh.param(kp_angle_name, kp_angle_,0.4);
+    }
+
+    kd_angle_ = 0.8;
+    std::string kd_angle_name;
+    if(private_nh.searchParam("kd_angle", kd_angle_name))
+    {
+      private_nh.param(kd_angle_name, kd_angle_,0.8);
+    }
+
+    ki_angle_ = 1.0;
+    std::string ki_angle_name;
+    if(private_nh.searchParam("ki_angle", ki_angle_name))
+    {
+      private_nh.param(ki_angle_name, ki_angle_,1.0);
+    }
+
+    if(use_artag_ref_)
+    {
+
+      mToo_.at<float>(0,3) = artag_x_offset_;
+      mToo_.at<float>(1,3) = artag_y_offset_;
+
+      sub3_ = nh_.subscribe("/ar_pose_marker", 1, &MoveController::updateMarkerPose, this);
+      std::string camera_filepath = "/home/xiaoqiang/Documents/ros/src/ORB_SLAM2/Examples/ROS/ORB_SLAM2/Data/setting5_multi.yaml";
+      cv::FileStorage fSettings(camera_filepath, cv::FileStorage::READ);
+      if(camera_id_ == 0)
+      {
+        fSettings["TbaMatrix"] >> mTbc_;
+      }
+      else
+      {
+        fSettings["Tbc2Matrix"] >> mTbc_;
+        std::cout << mTbc_ <<std::endl;
+      }
+
+      mTcb_ = mTbc_.inv();
+    }
 
     as_.start();
 }
@@ -257,6 +385,7 @@ void MoveController::executeCB(const galileo_msg::LocalMoveGoalConstPtr &goal)
             return;
         }
     }
+
     this->resetState();
     ROS_DEBUG("oups3");
     // start executing the action
@@ -332,8 +461,9 @@ void MoveController::resetState()
     theta_goal_reached_ = false;
 
     mRobot_pose_boxedge_ = mRobot_pose_;
+    mRobot_pose_boxedge_ready_ = false;
 
-    moving_time_ =ros::WallTime::now();
+    moving_time_ = ros::WallTime::now();
 
     if(!mPose_flag_) return;
     float x,y,theta;
@@ -395,6 +525,8 @@ bool MoveController::doMove()
                 ROS_DEBUG("prepare1 %f %f ",current_goal_.angle,theta_torelance_);
                 theta_goal_reached_ = true;
                 mdo_status_ = DO_STATUS::linear1;
+                resetTdo_ready();
+                ros::Duration(0.3).sleep(); //延时200ms，让直线运动更准同时识别二维码。
             }
             else
             {
@@ -422,6 +554,8 @@ bool MoveController::doMove()
                 current_vel.angular.y = 0;
                 current_vel.angular.z = 0;
                 mCmdvelPub_.publish(current_vel);
+                resetTdo_ready();
+                ros::Duration(0.3).sleep(); //延时200ms，让直线运动更准同时识别二维码。
             }
             else
             {
@@ -479,18 +613,149 @@ bool MoveController::doMove()
             error_theta_last_ = diff_theta;
             break;
         }
+        case DO_STATUS::rotate2:
+        {
+            float diff_theta,ar_dist;
+            bool online_flag = true;
+            getArtagError(diff_theta, ar_dist,online_flag);
+            if(std::fabs(diff_theta) <= theta_torelance_  || current_goal_.distance > -0.01)
+            {
+                //角度误差已经满足要求，或者目标是前进
+                ROS_DEBUG("rotate2.1 %f %f ",diff_theta,theta_torelance_);
+                theta_goal_reached_ = true;
+                error_theta_last_ = 0;
+                error_theta_sum_ = 0;
+                error_x_last_ = 0;
+                error_x_sum_ = 0;
+                mdo_status_ = DO_STATUS::complete;
+                current_vel.linear.x = 0;
+                current_vel.linear.y = 0;
+                current_vel.linear.z = 0;
+                current_vel.angular.x = 0;
+                current_vel.angular.y = 0;
+                current_vel.angular.z = 0;
+                mCmdvelPub_.publish(current_vel);
+            }
+            else
+            {
+                //pid旋转
+                float kp_theta = kp_angle_;
+                float kd_theta = kp_angle_*30*kd_angle_;
+                float ki_theta = kp_angle_/30/ki_angle_;
+
+                float error_temp1 = diff_theta - error_theta_last_;
+                error_theta_sum_ += diff_theta;
+                if(error_theta_sum_>3.0) error_theta_sum_ = 3.0;
+                if(error_theta_sum_<-3.0) error_theta_sum_ = -3.0;
+
+                current_vel.angular.z = kp_theta*diff_theta + kd_theta*error_temp1 + ki_theta*error_theta_sum_;
+                if(current_vel.angular.z > max_theta_speed_ ) current_vel.angular.z = max_theta_speed_;
+                if(current_vel.angular.z < -max_theta_speed_ ) current_vel.angular.z = -max_theta_speed_;
+
+                current_vel.linear.x = 0;
+                current_vel.linear.y = 0;
+                current_vel.linear.z = 0;
+                current_vel.angular.x = 0;
+                current_vel.angular.y = 0;
+
+                mCmdvelPub_.publish(current_vel);
+                ROS_DEBUG("rotate2.2 %f %f ",diff_theta,current_vel.angular.z);
+            }
+            error_theta_last_ = diff_theta;
+            break;
+        }
         case DO_STATUS::linear1:
         {
-            float diff_theta,diff_distance;
-            bool error_flag = getForwardError(diff_theta,diff_distance);
-            if(diff_distance<0)
+          float diff_theta,diff_distance;
+          bool error_flag = getForwardError(diff_theta,diff_distance);
+          if(diff_distance<0)
+          {
+            diff_theta = -diff_theta;
+          }
+          ROS_DEBUG("linear1.1 %f %f",diff_theta,diff_distance);
+
+          if(isTdo_ready() || use_artag_ref_ready_)
+          {
+            use_artag_ref_ready_ = true;
+            float ar_dist;
+            bool online_flag = false;
+            getArtagError(diff_theta, ar_dist, online_flag);
+            if(std::fabs(diff_distance) <= x_torelance_ || (diff_distance*current_goal_.distance)<0.0001 || ar_dist < artag_min_dist_)
             {
-              diff_theta = -diff_theta;
+              ROS_DEBUG("linear1.1.0 %f %f %f",diff_theta,ar_dist,x_torelance_);
+              x_goal_reached_ = true;
+              error_theta_last_ = 0;
+              error_theta_sum_ = 0;
+              error_x_last_ = 0;
+              error_x_sum_ = 0;
+              mdo_status_ = DO_STATUS::rotate2;//再原地旋转对准一下角度
+              current_vel.linear.x = 0;
+              current_vel.linear.y = 0;
+              current_vel.linear.z = 0;
+              current_vel.angular.x = 0;
+              current_vel.angular.y = 0;
+              current_vel.angular.z = 0;
+              mCmdvelPub_.publish(current_vel);
+              ros::Duration(0.2).sleep(); //延时200ms，让直线运动更准同时识别二维码。
             }
-            ROS_DEBUG("linear1.1 %f %f",diff_theta,diff_distance);
+            else
+            {
+              //pid对准
+              float kp_theta = kp_line_;
+              float kd_theta = kp_line_*30*kd_line_;
+              float ki_theta = kp_line_/30/ki_line_;
+
+              if(online_flag)
+              {
+                //在线宽范围内，需要换成角度保持
+                kp_theta = kp_angle_;
+                kd_theta = kp_angle_*30*kd_angle_;
+                ki_theta = kp_angle_/30/ki_angle_;
+              }
+
+              float error_temp1 = diff_theta - error_theta_last_;
+              error_theta_sum_ += diff_theta;
+              if(error_theta_sum_>3.0) error_theta_sum_ = 3.0;
+              if(error_theta_sum_<-3.0) error_theta_sum_ = -3.0;
+
+              current_vel.angular.z = kp_theta*diff_theta + kd_theta*error_temp1 + ki_theta*error_theta_sum_;
+              if(current_vel.angular.z > max_theta_speed_ ) current_vel.angular.z = max_theta_speed_;
+              if(current_vel.angular.z < -max_theta_speed_ ) current_vel.angular.z = -max_theta_speed_;
+
+
+              float kp_x = kp_x_set_;
+              float kd_x = kp_x_set_*30*kd_x_set_;
+              float ki_x = kp_x_set_/30/ki_x_set_;
+
+              error_temp1 = diff_distance - error_x_last_;
+              error_x_sum_ += diff_distance;
+              if(error_x_sum_>3.0) error_x_sum_ = 3.0;
+              if(error_x_sum_<-3.0) error_x_sum_ = -3.0;
+
+              current_vel.linear.x = kp_x*diff_distance + kd_x*error_temp1 + ki_x*error_x_sum_;
+              if(current_vel.linear.x > max_x_speed_ ) current_vel.linear.x = max_x_speed_;
+              if(current_vel.linear.x < -max_x_speed_ ) current_vel.linear.x = -max_x_speed_;
+              if(diff_distance>=0)
+              {
+                current_vel.linear.x = max_x_speed_;
+              }
+              else
+              {
+                current_vel.linear.x = -max_x_speed_;
+              }
+              current_vel.linear.y = 0;
+              current_vel.linear.z = 0;
+              current_vel.angular.x = 0;
+              current_vel.angular.y = 0;
+
+              mCmdvelPub_.publish(current_vel);
+            }
+          }
+          else
+          {
             if(std::fabs(diff_distance) <= x_torelance_ || (diff_distance*current_goal_.distance)<0.0001)
             {
-                ROS_DEBUG("linear1.2 %f %f %f",diff_theta,diff_distance,x_torelance_);
+                ROS_DEBUG("linear1.1.2 %f %f %f",diff_theta,diff_distance,x_torelance_);
                 x_goal_reached_ = true;
                 error_theta_last_ = 0;
                 error_theta_sum_ = 0;
@@ -583,7 +848,9 @@ bool MoveController::doMove()
             }
             error_theta_last_ = diff_theta;
             error_x_last_ = diff_distance;
-            break;
+          }
+
+          break;
         }
         case DO_STATUS::complete:
             current_vel.linear.x = 0;
@@ -616,6 +883,38 @@ void MoveController::getThetaError(float & e_theta)
     if(e_theta < -3.1415926) e_theta = e_theta + 2*3.1415926;
     return ;
 }
+
+void MoveController::getArtagError(float & e_theta, float & ar_dist ,bool &  online_flag)
+{
+  boost::mutex::scoped_lock lock(mMutex_armark);
+  cv::Mat Tbo = getTbo();
+  cv::Mat Tob = Tbo.inv();
+  cv::Mat Tco = getTco();
+  cv::Mat Toc = Tco.inv();
+  ar_dist = std::fabs(Toc.at<float>(2,3)); //
+  float Tob_x = Tob.at<float>(0,3);
+  if(std::fabs(Tob_x)<artag_line_width_ || online_flag)
+  {
+    online_flag = true;
+    //在直线线宽范围内
+    float x = Tbo.at<float>(0,3);
+    float y = Tbo.at<float>(1,3);
+    e_theta = - y/std::sqrt(x*x + y*y);
+  }
+  else
+  {
+    online_flag = false;
+    //在直线线宽范围外
+    e_theta = Tob_x;
+  }
+
+  if(current_goal_.distance>0)
+  {
+    //如果是前进，则需要反转控制量
+    e_theta = -e_theta;
+  }
+}
+
 
 bool MoveController::getForwardError(float & e_theta,float & e_x)
 {
@@ -660,14 +959,23 @@ bool MoveController::findNewGoalPose()
     {
       mRobot_pose_boxedge_ = mRobot_pose_;
       inbox_distance_ = 0;
+      mRobot_pose_boxedge_ready_ = true;
     }
     else{
-      float x0,y0,x1,y1;
-      x0 = mRobot_pose_.position.x;
-      y0 = mRobot_pose_.position.y;
-      x1 = mRobot_pose_boxedge_.position.x;
-      y1 = mRobot_pose_boxedge_.position.y;
-      inbox_distance_ = std::sqrt((x0-x1)*(x0-x1)+(y0-y1)*(y0-y1));
+      if(mRobot_pose_boxedge_ready_)
+      {
+        float x0,y0,x1,y1;
+        x0 = mRobot_pose_.position.x;
+        y0 = mRobot_pose_.position.y;
+        x1 = mRobot_pose_boxedge_.position.x;
+        y1 = mRobot_pose_boxedge_.position.y;
+        inbox_distance_ = std::sqrt((x0-x1)*(x0-x1)+(y0-y1)*(y0-y1));
+      }
+      else
+      {
+        inbox_distance_ = 0;
+      }
+
     }
     return center_ready_;
 }
@@ -678,6 +986,7 @@ void MoveController::dealBar()
     move_forward_enable_ = true;
     rot_counter_enable_ = true; //顺时针旋转-
     rot_uncounter_enable_ = true; //逆时针旋转+
+    if(force_no_bar_) return;
     float x,y;
     for(int i =0 ;i<=scandata1_num_ - 1;i++)
     {
@@ -726,6 +1035,20 @@ void MoveController::updateOdom(const nav_msgs::Odometry::ConstPtr& msg)
         boost::mutex::scoped_lock lock(mMutex_pose);
         mRobot_pose_ = global_pose_.pose;
         mPose_flag_ = true;
+
+        last_odomtime_ = ros::WallTime::now();
+
+        mTdb_.at<float>(0, 3) = mRobot_pose_.position.x;
+        mTdb_.at<float>(1, 3) = mRobot_pose_.position.y;
+        mTdb_.at<float>(2, 3) = mRobot_pose_.position.z;
+        tf::Matrix3x3 Rbc(tf::Quaternion(mRobot_pose_.orientation.x, mRobot_pose_.orientation.y, mRobot_pose_.orientation.z, mRobot_pose_.orientation.w));
+        for (int i = 0; i < 3; i++)
+        {
+            tf::Vector3 v = Rbc.getColumn(i);
+            mTdb_.at<float>(0, i) = v.getX();
+            mTdb_.at<float>(1, i) = v.getY();
+            mTdb_.at<float>(2, i) = v.getZ();
+        }
       }
     }
     else
@@ -1290,6 +1613,42 @@ void MoveController::dealscan()
     center23_ready_ = false;
   }
 
+}
+
+void MoveController::updateMarkerPose(const ar_track_alvar_msgs::AlvarMarkers& currentMarkers)
+{
+    for( auto& marker_msg : currentMarkers.markers)
+    {
+      if(marker_msg.id == MARKER_ID_DETECTION)
+      {
+        boost::mutex::scoped_lock lock1(mMutex_armark);
+        boost::mutex::scoped_lock lock2(mMutex_pose);
+
+        mTco_.at<float>(0, 3) = marker_msg.pose.pose.position.x;
+        mTco_.at<float>(1, 3) = marker_msg.pose.pose.position.y;
+        mTco_.at<float>(2, 3) = marker_msg.pose.pose.position.z;
+        tf::Matrix3x3 Rbc(tf::Quaternion(marker_msg.pose.pose.orientation.x, marker_msg.pose.pose.orientation.y, marker_msg.pose.pose.orientation.z, marker_msg.pose.pose.orientation.w));
+        double roll, pitch, yaw;
+        Rbc.getRPY(roll, pitch, yaw);
+        Rbc.setRPY(roll, pitch, 0); //z轴旋转角度强制为0
+        for (int i = 0; i < 3; i++)
+        {
+            tf::Vector3 v = Rbc.getColumn(i);
+            mTco_.at<float>(0, i) = v.getX();
+            mTco_.at<float>(1, i) = v.getY();
+            mTco_.at<float>(2, i) = v.getZ();
+        }
+        mTbo_ = mTbc_ * mTco_ * mToo_;
+        mTdo_ = mTdb_ * mTbo_;
+        mTdo_ready_ = true;
+        last_armarktime_ = ros::WallTime::now();
+        tf::Matrix3x3 Rbc_temp(mTbo_.at<float>(0, 0), mTbo_.at<float>(0, 1), mTbo_.at<float>(0, 2),
+                               mTbo_.at<float>(1, 0), mTbo_.at<float>(1, 1), mTbo_.at<float>(1, 2),
+                               mTbo_.at<float>(2, 0), mTbo_.at<float>(2, 1), mTbo_.at<float>(2, 2));
+        Rbc_temp.getRPY(roll, pitch, yaw);
+        ROS_DEBUG("artag %f %f %f, %f %f %f", mTbo_.at<float>(0, 3),mTbo_.at<float>(1, 3),mTbo_.at<float>(2, 3), roll, pitch, yaw);
+      }
+    }
 }
 
 }//bw_move_local

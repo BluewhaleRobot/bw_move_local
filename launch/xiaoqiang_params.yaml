@@ -24,7 +24,7 @@ MoveLocal:
 
     inbox_distance_set: 0.3
 
-    # transform rotation matrix
+     # transform rotation matrix
     R_laserscan: [-1., 0., 0., -1.]
     # transform trasition vector
     T_laserscan: [0.,0.]
@@ -32,3 +32,23 @@ MoveLocal:
     use_forward_ref: false #强制后退到前进初始位置
 
     force_no_ref: true #强制不使用激光雷达作为参考
+
+    force_no_bar: true #强制不进行障碍物检测
+
+    #二维码相关
+    use_artag_ref: true #前进或后退时，如果摄像头检测到二维码，则控制车在二维码标识的直线上运动。
+    camera_id: 1 #0表示前摄像头 1表示后摄像头 摄像头外参数在setting5_multi.yaml
+    artag_line_width: 0.1 #如果车在二维码标识的直线线宽范围内则进行角度对准保持控制，超出范围则控制回到线上
+    artag_min_dist: 0.1 #摄像头与二维码平面之间允许的最短距离
+    
+    artag_x_offset: 0
+    artag_y_offset: 0
+    #控制车回到线上的pid参数
+    kp_line: 0.4
+    kd_line: 0.8
+    ki_line: 1.0
+
+    #控制车角度对准直线的pid参数
+    kp_angle: 0.4
+    kd_angle: 0.8
+    ki_angle: 1.0
