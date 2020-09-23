@@ -621,11 +621,11 @@ bool MoveController::doMove()
             float diff_theta,ar_dist;
             bool online_flag = true;
             getArtagError(diff_theta, ar_dist,online_flag);
-            if(std::fabs(diff_theta) <= theta_torelance_  || current_goal_.distance > -0.01)
+            if(std::fabs(diff_theta) <= theta_torelance_ )
             {
                 //角度误差已经满足要求，或者目标是前进
                 ROS_DEBUG("rotate2.1 %f %f ",diff_theta,theta_torelance_);
-                theta_goal_reached_ = true;
+                x_goal_reached_ = true;
                 error_theta_last_ = 0;
                 error_theta_sum_ = 0;
                 error_x_last_ = 0;
@@ -682,11 +682,12 @@ bool MoveController::doMove()
             use_artag_ref_ready_ = true;
             float ar_dist;
             bool online_flag = false;
+            ROS_DEBUG("linear1.1.-1 %f %f",diff_theta,diff_distance);
             getArtagError(diff_theta, ar_dist, online_flag);
-            if(std::fabs(diff_distance) <= x_torelance_ || (diff_distance*current_goal_.distance)<0.0001 || ar_dist < artag_min_dist_)
+            ROS_DEBUG("linear1.1.-2 %f %f %f",diff_theta,diff_distance,ar_dist);
+            if(std::fabs(diff_distance) <= x_torelance_ || (diff_distance*current_goal_.distance)<0.0001 || (current_goal_.distance <0 &&ar_dist < artag_min_dist_))
             {
               ROS_DEBUG("linear1.1.0 %f %f %f",diff_theta,ar_dist,x_torelance_);
-              x_goal_reached_ = true;
               error_theta_last_ = 0;
               error_theta_sum_ = 0;
               error_x_last_ = 0;
@@ -889,7 +890,6 @@ void MoveController::getThetaError(float & e_theta)
 
 void MoveController::getArtagError(float & e_theta, float & ar_dist ,bool &  online_flag)
 {
-  boost::mutex::scoped_lock lock(mMutex_armark);
   cv::Mat Tbo = getTbo();
   cv::Mat Tob = Tbo.inv();
   cv::Mat Tco = getTco();
@@ -900,22 +900,28 @@ void MoveController::getArtagError(float & e_theta, float & ar_dist ,bool &  onl
   {
     online_flag = true;
     //在直线线宽范围内
-    float x = Tbo.at<float>(0,3);
-    float y = Tbo.at<float>(1,3);
-    e_theta = - y/std::sqrt(x*x + y*y);
+    // float x = Tbo.at<float>(0,3);
+    // float y = Tbo.at<float>(1,3);
+    // e_theta = - y/std::sqrt(x*x + y*y);
+    double roll, pitch, yaw;
+    tf::Matrix3x3 Rbo(Tbo.at<float>(0, 0), Tbo.at<float>(0, 1), Tbo.at<float>(0, 2),
+                               Tbo.at<float>(1, 0), Tbo.at<float>(1, 1), Tbo.at<float>(1, 2),
+                               Tbo.at<float>(2, 0), Tbo.at<float>(2, 1), Tbo.at<float>(2, 2));
+    Rbo.getRPY(roll, pitch, yaw);
+    e_theta = yaw - m_pi/2.0;
   }
   else
   {
     online_flag = false;
     //在直线线宽范围外
     e_theta = Tob_x;
+    if(current_goal_.distance>0)
+    {
+      //如果是前进，则需要反转控制量
+      e_theta = -e_theta;
+    }
   }
 
-  if(current_goal_.distance>0)
-  {
-    //如果是前进，则需要反转控制量
-    e_theta = -e_theta;
-  }
 }
 
 
@@ -1649,7 +1655,17 @@ void MoveController::updateMarkerPose(const ar_track_alvar_msgs::AlvarMarkers& c
                                mTbo_.at<float>(1, 0), mTbo_.at<float>(1, 1), mTbo_.at<float>(1, 2),
                                mTbo_.at<float>(2, 0), mTbo_.at<float>(2, 1), mTbo_.at<float>(2, 2));
         Rbc_temp.getRPY(roll, pitch, yaw);
-        ROS_DEBUG("artag %f %f %f, %f %f %f", mTbo_.at<float>(0, 3),mTbo_.at<float>(1, 3),mTbo_.at<float>(2, 3), roll, pitch, yaw);
+        ROS_DEBUG("artag bo %f %f %f, %f %f %f", mTbo_.at<float>(0, 3),mTbo_.at<float>(1, 3),mTbo_.at<float>(2, 3), roll, pitch, yaw);
+        float tbo_x = mTbo_.at<float>(0,3);
+        float tbo_y = mTbo_.at<float>(1,3);
+        float e_theta = - tbo_y/std::sqrt(tbo_x*tbo_x + tbo_y*tbo_y);
+        cv::Mat Tob = mTbo_.inv();
+        tf::Matrix3x3 Rcb_temp(Tob.at<float>(0, 0), Tob.at<float>(0, 1), Tob.at<float>(0, 2),
+                               Tob.at<float>(1, 0), Tob.at<float>(1, 1), Tob.at<float>(1, 2),
+                               Tob.at<float>(2, 0), Tob.at<float>(2, 1), Tob.at<float>(2, 2));
+        Rcb_temp.getRPY(roll, pitch, yaw);
+        ROS_DEBUG("artag ob %f %f %f, %f %f %f", Tob.at<float>(0, 3),Tob.at<float>(1, 3),Tob.at<float>(2, 3), roll, pitch, yaw);
+        ROS_ERROR("bo %f %f %f, ob %f %f %f %f %f %f",mTbo_.at<float>(0, 3),mTbo_.at<float>(1, 3),mTbo_.at<float>(2, 3),Tob.at<float>(0, 3),Tob.at<float>(1, 3),Tob.at<float>(2, 3),roll, pitch, yaw);
       }
     }
 }
