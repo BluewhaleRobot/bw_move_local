@@ -5,7 +5,7 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 #define m_pi 3.1415926
-#define MARKER_ID_DETECTION 0
+#define MARKER_ID_DETECTION 1
 
 namespace bw_move_local
 {
@@ -360,7 +360,7 @@ MoveController::MoveController(std::string name):as_(nh_, name, boost::bind(&Mov
       mTcb_ = mTbc_.inv();
     }
 
-    resetTdo_flag_ = false;
+    resetTdo_flag_ = true;
     Tdo_roll_ = 0;
     Tdo_pitch_ = 0;
     Tdo_yaw_ = 0;
@@ -1652,6 +1652,7 @@ void MoveController::updateMarkerPose(const ar_track_alvar_msgs::AlvarMarkers& c
             mTco_.at<float>(2, i) = v.getZ();
         }
         cv::Mat Toc = mTco_.inv();
+        if(Toc.at<float>(2, 3)<0) return; //错误数据
         tf::Matrix3x3 Roc(Toc.at<float>(0, 0), Toc.at<float>(0, 1), Toc.at<float>(0, 2),
                           Toc.at<float>(1, 0), Toc.at<float>(1, 1), Toc.at<float>(1, 2),
                           Toc.at<float>(2, 0), Toc.at<float>(2, 1), Toc.at<float>(2, 2));
@@ -1666,6 +1667,11 @@ void MoveController::updateMarkerPose(const ar_track_alvar_msgs::AlvarMarkers& c
         }
         mTco_ = Toc.inv();
         mTbo_ = mTbc_ * mTco_ * mToo_;
+        cv::Mat Tob = mTbo_.inv();
+        if(Tob.at<float>(2, 3)<0)
+        {
+          return; //错误数据
+        }
         cv::Mat Tdo_now = mTdb_ * mTbo_;
         tf::Matrix3x3 Rdo(Tdo_now.at<float>(0, 0), Tdo_now.at<float>(0, 1), Tdo_now.at<float>(0, 2),
                           Tdo_now.at<float>(1, 0), Tdo_now.at<float>(1, 1), Tdo_now.at<float>(1, 2),
@@ -1683,12 +1689,12 @@ void MoveController::updateMarkerPose(const ar_track_alvar_msgs::AlvarMarkers& c
         }
         else
         {
-          Tdo_roll_ = 0.5*Tdo_roll_ + 0.5*roll;
-          Tdo_pitch_ = 0.5*Tdo_pitch_ + 0.5*pitch;
-          Tdo_yaw_ = 0.5*Tdo_yaw_ + 0.5*yaw;
-          Tdo_x_ = 0.5*Tdo_x_ + 0.5*Tdo_now.at<float>(0, 3);
-          Tdo_y_ = 0.5*Tdo_y_ + 0.5*Tdo_now.at<float>(1, 3);
-          Tdo_z_ = 0.5*Tdo_z_ + 0.5*Tdo_now.at<float>(2, 3);
+          Tdo_roll_ = 0.8*Tdo_roll_ + 0.2*roll;
+          Tdo_pitch_ = 0.8*Tdo_pitch_ + 0.2*pitch;
+          Tdo_yaw_ = 0.8*Tdo_yaw_ + 0.2*yaw;
+          Tdo_x_ = 0.8*Tdo_x_ + 0.2*Tdo_now.at<float>(0, 3);
+          Tdo_y_ = 0.8*Tdo_y_ + 0.2*Tdo_now.at<float>(1, 3);
+          Tdo_z_ = 0.8*Tdo_z_ + 0.2*Tdo_now.at<float>(2, 3);
         }
         Rdo.setRPY(Tdo_roll_,Tdo_pitch_,Tdo_yaw_);
         for (int i = 0; i < 3; i++)
@@ -1711,12 +1717,17 @@ void MoveController::updateMarkerPose(const ar_track_alvar_msgs::AlvarMarkers& c
                                mTbo_.at<float>(2, 0), mTbo_.at<float>(2, 1), mTbo_.at<float>(2, 2));
         Rbo.getRPY(roll, pitch, yaw);
 
-        cv::Mat Tob = mTbo_.inv();
+        Tob = mTbo_.inv();
         tf::Matrix3x3 Rob(Tob.at<float>(0, 0), Tob.at<float>(0, 1), Tob.at<float>(0, 2),
                                Tob.at<float>(1, 0), Tob.at<float>(1, 1), Tob.at<float>(1, 2),
                                Tob.at<float>(2, 0), Tob.at<float>(2, 1), Tob.at<float>(2, 2));
-        Rob.getRPY(roll, pitch, yaw);
-        ROS_ERROR("bo %f %f %f, ob %f %f %f %f %f %f",mTbo_.at<float>(0, 3),mTbo_.at<float>(1, 3),mTbo_.at<float>(2, 3),Tob.at<float>(0, 3),Tob.at<float>(1, 3),Tob.at<float>(2, 3),roll, pitch, yaw);
+        double roll2,pitch2,yaw2;
+        Rob.getRPY(roll2, pitch2, yaw2);
+        // ROS_ERROR("bo %f %f %f, ob %f %f %f . %f %f %f ,%f %f %f",mTbo_.at<float>(0, 3),mTbo_.at<float>(1, 3),mTbo_.at<float>(2, 3),
+        // Tob.at<float>(0, 3),Tob.at<float>(1, 3),Tob.at<float>(2, 3),
+        // roll, pitch, yaw,roll2, pitch2, yaw2);
+        ROS_DEBUG("bo %f %f %f ,error %f ",mTbo_.at<float>(0, 3),mTbo_.at<float>(1, 3),mTbo_.at<float>(2, 3), yaw-m_pi/2.0);
+        ROS_DEBUG("ob %f %f %f ",Tob.at<float>(0, 3),Tob.at<float>(1, 3),Tob.at<float>(2, 3));
       }
     }
 }
