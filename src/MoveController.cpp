@@ -514,6 +514,45 @@ void MoveController::resetState()
     ROS_DEBUG("reset %f %f %f, %f %f %f",x,y,theta,goal_pose[0],goal_pose[1],goal_pose[2]);
 }
 
+void MoveController::update_goal_theta(float angle_delta)
+{
+  boost::mutex::scoped_lock lock(mMutex_pose);
+
+  float theta;
+  tf::Quaternion q1(mRobot_pose_.orientation.x, mRobot_pose_.orientation.y, mRobot_pose_.orientation.z,
+                    mRobot_pose_.orientation.w);
+  tf::Matrix3x3 m1(q1);
+  double roll, pitch, yaw;
+  m1.getRPY(roll, pitch, yaw);
+  theta = yaw;
+  goal_pose[2] = theta + angle_delta;
+  if(goal_pose[2]>3.1415926) goal_pose[2] = goal_pose[2] - 2*3.1415926;
+  if(goal_pose[2]<-3.1415926) goal_pose[2] = goal_pose[2] + 2*3.1415926;
+}
+
+void MoveController::update_goal_all(float angle_delta,float distance)
+{
+  //角度设成当前姿态值
+  boost::mutex::scoped_lock lock(mMutex_pose);
+
+  float x,y,theta;
+  x = mRobot_pose_.position.x;
+  y = mRobot_pose_.position.y;
+  tf::Quaternion q1(mRobot_pose_.orientation.x, mRobot_pose_.orientation.y, mRobot_pose_.orientation.z,
+                    mRobot_pose_.orientation.w);
+  tf::Matrix3x3 m1(q1);
+  double roll, pitch, yaw;
+  m1.getRPY(roll, pitch, yaw);
+  theta = yaw;
+
+  goal_pose[2] = theta + angle_delta;
+  if(goal_pose[2]>3.1415926) goal_pose[2] = goal_pose[2] - 2*3.1415926;
+  if(goal_pose[2]<-3.1415926) goal_pose[2] = goal_pose[2] + 2*3.1415926;
+
+  goal_pose[0] = x + distance*cos(goal_pose[2]);
+  goal_pose[1] = y + distance*sin(goal_pose[2]);
+}
+
 bool MoveController::doMove()
 {
     boost::mutex::scoped_lock lock(mMutex_move);
@@ -626,19 +665,38 @@ bool MoveController::doMove()
         case DO_STATUS::rotate2:
         {
             float diff_theta,ar_dist;
-            bool online_flag = true;
-            float e_x = 0;
-            getArtagError(diff_theta, e_x, ar_dist,online_flag);
+            bool online_flag ;
+            float e_y = 0;
+            getArtagError(diff_theta, e_y, ar_dist,online_flag);
             if(std::fabs(diff_theta) <= theta_torelance_ )
             {
-                //角度误差已经满足要求，或者目标是前进
+                //角度误差已经满足要求
                 ROS_DEBUG("rotate2.1 %f %f ",diff_theta,theta_torelance_);
-                x_goal_reached_ = true;
                 error_theta_last_ = 0;
                 error_theta_sum_ = 0;
                 error_x_last_ = 0;
                 error_x_sum_ = 0;
-                mdo_status_ = DO_STATUS::complete;
+                if( online_flag )
+                {
+                  //满足线宽要求，开始后退对准
+                  update_goal_all(0,current_goal_.distance);
+                  mdo_status_ = DO_STATUS::linear2;
+                }
+                else
+                {
+                  //先转90度
+                  if(e_y > 0)
+                  {
+                    update_goal_all(m_pi/2.0,e_y);
+                  }
+                  else
+                  {
+                    update_goal_all(-m_pi/2.0,-e_y);
+                  }
+                  last_e_y_ = e_y;
+                  mdo_status_ = DO_STATUS::rotate3;
+
+                }
                 current_vel.linear.x = 0;
                 current_vel.linear.y = 0;
                 current_vel.linear.z = 0;
@@ -675,6 +733,136 @@ bool MoveController::doMove()
             error_theta_last_ = diff_theta;
             break;
         }
+        case DO_STATUS::rotate3:
+        {
+            float diff_theta;
+            getThetaError(diff_theta);
+            if(std::fabs(diff_theta) <= theta_torelance_)
+            {
+                ROS_DEBUG("rotate3 %f %f ",diff_theta,theta_torelance_);
+                error_theta_last_ = 0;
+                error_theta_sum_ = 0;
+                error_x_last_ = 0;
+                error_x_sum_ = 0;
+                mdo_status_ = DO_STATUS::linear3;
+                current_vel.linear.x = 0;
+                current_vel.linear.y = 0;
+                current_vel.linear.z = 0;
+                current_vel.angular.x = 0;
+                current_vel.angular.y = 0;
+                current_vel.angular.z = 0;
+                mCmdvelPub_.publish(current_vel);
+            }
+            else
+            {
+                //pid旋转
+                float kp_theta = kp_theta_set_;
+                float kd_theta = kp_theta_set_*30*kd_theta_set_;
+                float ki_theta = kp_theta_set_/30/ki_theta_set_;
+
+                float error_temp1 = diff_theta - error_theta_last_;
+                error_theta_sum_ += diff_theta;
+                if(error_theta_sum_>3.0) error_theta_sum_ = 3.0;
+                if(error_theta_sum_<-3.0) error_theta_sum_ = -3.0;
+
+                current_vel.angular.z = kp_theta*diff_theta + kd_theta*error_temp1 + ki_theta*error_theta_sum_;
+                if(current_vel.angular.z > max_theta_speed_ ) current_vel.angular.z = max_theta_speed_;
+                if(current_vel.angular.z < -max_theta_speed_ ) current_vel.angular.z = -max_theta_speed_;
+
+                current_vel.linear.x = 0;
+                current_vel.linear.y = 0;
+                current_vel.linear.z = 0;
+                current_vel.angular.x = 0;
+                current_vel.angular.y = 0;
+                dealBar();
+                if(current_vel.angular.z>0 && !rot_uncounter_enable_) current_vel.angular.z=0;
+                if(current_vel.angular.z<0 && !rot_counter_enable_) current_vel.angular.z=0;
+                mCmdvelPub_.publish(current_vel);
+
+                if((!rot_uncounter_enable_  && current_goal_.angle >0) || (!rot_counter_enable_  && current_goal_.angle <0))
+                {
+                  error_theta_last_ = 0;
+                  error_theta_sum_ = 0;
+                  error_x_last_ = 0;
+                  error_x_sum_ = 0;
+                  mdo_status_ = DO_STATUS::complete;//
+                  return false;
+                }
+                if(std::fabs(current_vel.angular.z)>0.01)
+                {
+                  moving_time_ = ros::WallTime::now();
+                }
+                else
+                {
+                  ros::WallDuration free_diff = ros::WallTime::now() - moving_time_;
+                  if(free_diff.toSec()>5.0)
+                  {
+                    error_theta_last_ = 0;
+                    error_theta_sum_ = 0;
+                    error_x_last_ = 0;
+                    error_x_sum_ = 0;
+                    mdo_status_ = DO_STATUS::complete;//
+                    return false;
+                  }
+                }
+            }
+            error_theta_last_ = diff_theta;
+            break;
+        }
+        case DO_STATUS::rotate4:
+        {
+            //再次回正
+            float diff_theta,ar_dist;
+            bool online_flag ;
+            float e_y = 0;
+            getArtagError(diff_theta, e_y, ar_dist,online_flag);
+            if(std::fabs(diff_theta) <= theta_torelance_ )
+            {
+                //角度误差已经满足要求
+                ROS_DEBUG("rotate4.1 %f %f ",diff_theta,theta_torelance_);
+                x_goal_reached_ = true;
+                error_theta_last_ = 0;
+                error_theta_sum_ = 0;
+                error_x_last_ = 0;
+                error_x_sum_ = 0;
+                mdo_status_ = DO_STATUS::complete;//
+
+                current_vel.linear.x = 0;
+                current_vel.linear.y = 0;
+                current_vel.linear.z = 0;
+                current_vel.angular.x = 0;
+                current_vel.angular.y = 0;
+                current_vel.angular.z = 0;
+                mCmdvelPub_.publish(current_vel);
+            }
+            else
+            {
+                //pid旋转
+                float kp_theta = kp_angle_;
+                float kd_theta = kp_angle_*30*kd_angle_;
+                float ki_theta = kp_angle_/30/ki_angle_;
+
+                float error_temp1 = diff_theta - error_theta_last_;
+                error_theta_sum_ += diff_theta;
+                if(error_theta_sum_>3.0) error_theta_sum_ = 3.0;
+                if(error_theta_sum_<-3.0) error_theta_sum_ = -3.0;
+
+                current_vel.angular.z = kp_theta*diff_theta + kd_theta*error_temp1 + ki_theta*error_theta_sum_;
+                if(current_vel.angular.z > max_theta_speed_ ) current_vel.angular.z = max_theta_speed_;
+                if(current_vel.angular.z < -max_theta_speed_ ) current_vel.angular.z = -max_theta_speed_;
+
+                current_vel.linear.x = 0;
+                current_vel.linear.y = 0;
+                current_vel.linear.z = 0;
+                current_vel.angular.x = 0;
+                current_vel.angular.y = 0;
+
+                mCmdvelPub_.publish(current_vel);
+                ROS_DEBUG("rotate4.2 %f %f ",diff_theta,current_vel.angular.z);
+            }
+            error_theta_last_ = diff_theta;
+            break;
+        }
         case DO_STATUS::linear1:
         {
           float diff_theta,diff_distance;
@@ -684,85 +872,23 @@ bool MoveController::doMove()
             diff_theta = -diff_theta;
           }
           ROS_DEBUG("linear1.1 %f %f",diff_theta,diff_distance);
-
-          if(isTdo_ready() || use_artag_ref_ready_)
+          if(use_artag_ref_ && (isTdo_ready() || use_artag_ref_ready_))
           {
             use_artag_ref_ready_ = true;
-            float ar_dist;
-            bool online_flag = false;
-            float e_x;
-            ROS_DEBUG("linear1.1.-1 %f %f",diff_theta,diff_distance);
-            getArtagError(diff_theta, e_x, ar_dist, online_flag);
-            ROS_DEBUG("linear1.1.-2 %f %f %f",diff_theta,diff_distance,ar_dist);
-            if(std::fabs(diff_distance) <= x_torelance_ || (diff_distance*current_goal_.distance)<0.0001 || (current_goal_.distance <0 &&ar_dist < artag_min_dist_))
-            {
-              ROS_DEBUG("linear1.1.0 %f %f %f",diff_theta,ar_dist,x_torelance_);
-              error_theta_last_ = 0;
-              error_theta_sum_ = 0;
-              error_x_last_ = 0;
-              error_x_sum_ = 0;
-              mdo_status_ = DO_STATUS::rotate2;//再原地旋转对准一下角度
-              current_vel.linear.x = 0;
-              current_vel.linear.y = 0;
-              current_vel.linear.z = 0;
-              current_vel.angular.x = 0;
-              current_vel.angular.y = 0;
-              current_vel.angular.z = 0;
-              mCmdvelPub_.publish(current_vel);
-              ros::Duration(0.2).sleep(); //延时200ms，让直线运动更准同时识别二维码。
-            }
-            else
-            {
-              //pid对准
-              float kp_theta = kp_line_;
-              float kd_theta = kp_line_*30*kd_line_;
-              float ki_theta = kp_line_/30/ki_line_;
-
-              if(online_flag)
-              {
-                //在线宽范围内，需要换成角度保持
-                kp_theta = kp_angle_;
-                kd_theta = kp_angle_*30*kd_angle_;
-                ki_theta = kp_angle_/30/ki_angle_;
-              }
-
-              float error_temp1 = diff_theta - error_theta_last_;
-              error_theta_sum_ += diff_theta;
-              if(error_theta_sum_>3.0) error_theta_sum_ = 3.0;
-              if(error_theta_sum_<-3.0) error_theta_sum_ = -3.0;
-
-              current_vel.angular.z = kp_theta*diff_theta + kd_theta*error_temp1 + ki_theta*error_theta_sum_;
-              if(current_vel.angular.z > max_theta_speed_ ) current_vel.angular.z = max_theta_speed_;
-              if(current_vel.angular.z < -max_theta_speed_ ) current_vel.angular.z = -max_theta_speed_;
-
-
-              float kp_x = kp_x_set_;
-              float kd_x = kp_x_set_*30*kd_x_set_;
-              float ki_x = kp_x_set_/30/ki_x_set_;
-
-              error_temp1 = diff_distance - error_x_last_;
-              error_x_sum_ += diff_distance;
-              if(error_x_sum_>3.0) error_x_sum_ = 3.0;
-              if(error_x_sum_<-3.0) error_x_sum_ = -3.0;
-
-              current_vel.linear.x = kp_x*diff_distance + kd_x*error_temp1 + ki_x*error_x_sum_;
-              if(current_vel.linear.x > max_x_speed_ ) current_vel.linear.x = max_x_speed_;
-              if(current_vel.linear.x < -max_x_speed_ ) current_vel.linear.x = -max_x_speed_;
-              if(diff_distance>=0)
-              {
-                current_vel.linear.x = max_x_speed_;
-              }
-              else
-              {
-                current_vel.linear.x = -max_x_speed_;
-              }
-              current_vel.linear.y = 0;
-              current_vel.linear.z = 0;
-              current_vel.angular.x = 0;
-              current_vel.angular.y = 0;
-
-              mCmdvelPub_.publish(current_vel);
-            }
+            ROS_DEBUG("linear1.1.0 ");
+            error_theta_last_ = 0;
+            error_theta_sum_ = 0;
+            error_x_last_ = 0;
+            error_x_sum_ = 0;
+            mdo_status_ = DO_STATUS::rotate2;//再原地旋转对准一下角度
+            current_vel.linear.x = 0;
+            current_vel.linear.y = 0;
+            current_vel.linear.z = 0;
+            current_vel.angular.x = 0;
+            current_vel.angular.y = 0;
+            current_vel.angular.z = 0;
+            mCmdvelPub_.publish(current_vel);
+            ros::Duration(0.2).sleep(); //延时200ms，让直线运动更准同时识别二维码。
           }
           else
           {
@@ -865,6 +991,199 @@ bool MoveController::doMove()
 
           break;
         }
+        case DO_STATUS::linear2:
+        {
+          float diff_theta,diff_distance;
+          bool error_flag = getForwardError(diff_theta,diff_distance);
+          use_artag_ref_ready_ = true;
+          float ar_dist;
+          bool online_flag = false;
+          float e_y;
+          getArtagError(diff_theta, e_y, ar_dist, online_flag);
+          ROS_DEBUG("linear2.1.-2 %f %f %f",diff_theta,diff_distance,ar_dist);
+          if(std::fabs(diff_distance) <= x_torelance_ || (diff_distance*current_goal_.distance)<0.0001 || (current_goal_.distance <0 &&ar_dist < artag_min_dist_))
+          {
+            ROS_DEBUG("linear2.1.0 %f %f %f",diff_theta,ar_dist,x_torelance_);
+            error_theta_last_ = 0;
+            error_theta_sum_ = 0;
+            error_x_last_ = 0;
+            error_x_sum_ = 0;
+            mdo_status_ = DO_STATUS::rotate4;//再原地旋转对准一下角度
+            current_vel.linear.x = 0;
+            current_vel.linear.y = 0;
+            current_vel.linear.z = 0;
+            current_vel.angular.x = 0;
+            current_vel.angular.y = 0;
+            current_vel.angular.z = 0;
+            mCmdvelPub_.publish(current_vel);
+            ros::Duration(0.2).sleep(); //延时200ms，让直线运动更准同时识别二维码。
+          }
+          else
+          {
+            diff_theta = e_y;
+            //pid对准
+            float kp_theta = kp_line_;
+            float kd_theta = kp_line_*30*kd_line_;
+            float ki_theta = kp_line_/30/ki_line_;
+
+            float error_temp1 = diff_theta - error_theta_last_;
+            error_theta_sum_ += diff_theta;
+            if(error_theta_sum_>3.0) error_theta_sum_ = 3.0;
+            if(error_theta_sum_<-3.0) error_theta_sum_ = -3.0;
+
+            current_vel.angular.z = kp_theta*diff_theta + kd_theta*error_temp1 + ki_theta*error_theta_sum_;
+            if(current_vel.angular.z > max_theta_speed_ ) current_vel.angular.z = max_theta_speed_;
+            if(current_vel.angular.z < -max_theta_speed_ ) current_vel.angular.z = -max_theta_speed_;
+
+
+            float kp_x = kp_x_set_;
+            float kd_x = kp_x_set_*30*kd_x_set_;
+            float ki_x = kp_x_set_/30/ki_x_set_;
+
+            error_temp1 = diff_distance - error_x_last_;
+            error_x_sum_ += diff_distance;
+            if(error_x_sum_>3.0) error_x_sum_ = 3.0;
+            if(error_x_sum_<-3.0) error_x_sum_ = -3.0;
+
+            current_vel.linear.x = kp_x*diff_distance + kd_x*error_temp1 + ki_x*error_x_sum_;
+            if(current_vel.linear.x > max_x_speed_ ) current_vel.linear.x = max_x_speed_;
+            if(current_vel.linear.x < -max_x_speed_ ) current_vel.linear.x = -max_x_speed_;
+            if(diff_distance>=0)
+            {
+              current_vel.linear.x = max_x_speed_;
+            }
+            else
+            {
+              current_vel.linear.x = -max_x_speed_;
+            }
+            current_vel.linear.y = 0;
+            current_vel.linear.z = 0;
+            current_vel.angular.x = 0;
+            current_vel.angular.y = 0;
+
+            mCmdvelPub_.publish(current_vel);
+          }
+          error_theta_last_ = diff_theta;
+          error_x_last_ = diff_distance;
+          break;
+        }
+        case DO_STATUS::linear3:
+        {
+          float diff_theta,diff_distance;
+          bool error_flag = getForwardError(diff_theta,diff_distance);
+          if(diff_distance<0)
+          {
+            diff_theta = -diff_theta;
+          }
+          ROS_DEBUG("linear3.1 %f %f",diff_theta,diff_distance);
+
+          if(std::fabs(diff_distance) <= x_torelance_ || diff_distance<0.0001) //这里只有前进
+          {
+              ROS_DEBUG("linear3.1.2 %f %f %f",diff_theta,diff_distance,x_torelance_);
+              error_theta_last_ = 0;
+              error_theta_sum_ = 0;
+              error_x_last_ = 0;
+              error_x_sum_ = 0;
+              //回转90度
+              //先转90度
+              if(last_e_y_ > 0)
+              {
+                update_goal_all(-m_pi/2.0, current_goal_.distance);
+              }
+              else
+              {
+                update_goal_all(m_pi/2.0, current_goal_.distance);
+              }
+              mdo_status_ = DO_STATUS::rotate1;//回到第一步
+              current_vel.linear.x = 0;
+              current_vel.linear.y = 0;
+              current_vel.linear.z = 0;
+              current_vel.angular.x = 0;
+              current_vel.angular.y = 0;
+              current_vel.angular.z = 0;
+              mCmdvelPub_.publish(current_vel);
+          }
+          else
+          {
+              //pid对准
+              float kp_theta = kp_theta_set_;
+              float kd_theta = kp_theta_set_*30*kd_theta_set_;
+              float ki_theta = kp_theta_set_/30/ki_theta_set_;
+
+              float error_temp1 = diff_theta - error_theta_last_;
+              error_theta_sum_ += diff_theta;
+              if(error_theta_sum_>3.0) error_theta_sum_ = 3.0;
+              if(error_theta_sum_<-3.0) error_theta_sum_ = -3.0;
+
+              current_vel.angular.z = kp_theta*diff_theta + kd_theta*error_temp1 + ki_theta*error_theta_sum_;
+              if(current_vel.angular.z > max_theta_speed_ ) current_vel.angular.z = max_theta_speed_;
+              if(current_vel.angular.z < -max_theta_speed_ ) current_vel.angular.z = -max_theta_speed_;
+
+
+              float kp_x = kp_x_set_;
+              float kd_x = kp_x_set_*30*kd_x_set_;
+              float ki_x = kp_x_set_/30/ki_x_set_;
+
+              error_temp1 = diff_distance - error_x_last_;
+              error_x_sum_ += diff_distance;
+              if(error_x_sum_>3.0) error_x_sum_ = 3.0;
+              if(error_x_sum_<-3.0) error_x_sum_ = -3.0;
+
+              current_vel.linear.x = kp_x*diff_distance + kd_x*error_temp1 + ki_x*error_x_sum_;
+              if(current_vel.linear.x > max_x_speed_ ) current_vel.linear.x = max_x_speed_;
+              if(current_vel.linear.x < -max_x_speed_ ) current_vel.linear.x = -max_x_speed_;
+              if(diff_distance>=0)
+              {
+                current_vel.linear.x = max_x_speed_;
+              }
+              else
+              {
+                current_vel.linear.x = -max_x_speed_;
+              }
+              current_vel.linear.y = 0;
+              current_vel.linear.z = 0;
+              current_vel.angular.x = 0;
+              current_vel.angular.y = 0;
+
+              dealBar();
+
+              if(current_vel.angular.z>0 && !rot_uncounter_enable_) current_vel.angular.z=0;
+              if(current_vel.angular.z<0 && !rot_counter_enable_) current_vel.angular.z=0;
+              if(!move_forward_enable_ && current_vel.linear.x>0) current_vel.linear.x = 0;
+
+              mCmdvelPub_.publish(current_vel);
+              if(!move_forward_enable_  && current_goal_.distance >0 && rot_counter_enable_ && rot_uncounter_enable_)
+              {
+                error_theta_last_ = 0;
+                error_theta_sum_ = 0;
+                error_x_last_ = 0;
+                error_x_sum_ = 0;
+                mdo_status_ = DO_STATUS::complete;//
+                return false;
+              }
+              if(std::fabs(current_vel.angular.z)>0.01||std::fabs(current_vel.linear.x)>0.03)
+              {
+                moving_time_ = ros::WallTime::now();
+              }
+              else
+              {
+                ros::WallDuration free_diff = ros::WallTime::now() - moving_time_;
+                if(free_diff.toSec()>5.0)
+                {
+                  error_theta_last_ = 0;
+                  error_theta_sum_ = 0;
+                  error_x_last_ = 0;
+                  error_x_sum_ = 0;
+                  mdo_status_ = DO_STATUS::complete;//
+                  return false;
+                }
+              }
+          }
+          error_theta_last_ = diff_theta;
+          error_x_last_ = diff_distance;
+
+          break;
+        }
         case DO_STATUS::complete:
             current_vel.linear.x = 0;
             current_vel.linear.y = 0;
@@ -897,7 +1216,7 @@ void MoveController::getThetaError(float & e_theta)
     return ;
 }
 
-void MoveController::getArtagError(float & e_theta, float e_x, float & ar_dist, bool &  online_flag)
+void MoveController::getArtagError(float & e_theta, float e_y, float & ar_dist, bool &  online_flag)
 {
   //e_theta = -Tbo_y
   //e_x 二维码中垂面与base_link的x轴交点坐标，用来表示车需要直线移动多少距离才可以进入中线
@@ -912,20 +1231,23 @@ void MoveController::getArtagError(float & e_theta, float e_x, float & ar_dist, 
   float Tbo_x = Tbo.at<float>(0,3);
   float Tbo_y = Tbo.at<float>(1,3);
 
-  e_theta = - Tbo_y;
+  e_y = - Tbo_y;
 
-  e_x = Tbo_x - Tbo_y * (Tbo.at<float>(0,2) / Tbo.at<float>(1,2));
-
-  if(std::fabs(e_x)<artag_line_width_ || online_flag)
+  if(std::fabs(e_y)<artag_line_width_)
   {
     online_flag = true;
-    double roll, pitch, yaw;
-    tf::Matrix3x3 Rbo(Tbo.at<float>(0, 0), Tbo.at<float>(0, 1), Tbo.at<float>(0, 2),
-                               Tbo.at<float>(1, 0), Tbo.at<float>(1, 1), Tbo.at<float>(1, 2),
-                               Tbo.at<float>(2, 0), Tbo.at<float>(2, 1), Tbo.at<float>(2, 2));
-    Rbo.getRPY(roll, pitch, yaw);
-    e_theta = yaw - m_pi/2.0;
   }
+  else
+  {
+    online_flag = false;
+  }
+
+  double roll, pitch, yaw;
+  tf::Matrix3x3 Rbo(Tbo.at<float>(0, 0), Tbo.at<float>(0, 1), Tbo.at<float>(0, 2),
+                             Tbo.at<float>(1, 0), Tbo.at<float>(1, 1), Tbo.at<float>(1, 2),
+                             Tbo.at<float>(2, 0), Tbo.at<float>(2, 1), Tbo.at<float>(2, 2));
+  Rbo.getRPY(roll, pitch, yaw);
+  e_theta = yaw - m_pi/2.0;
 
 }
 

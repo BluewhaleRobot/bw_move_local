@@ -60,7 +60,11 @@ typedef enum class DO_STATUS
     prepare1,
     rotate1,
     rotate2,
+    rotate3,
+    rotate4,
     linear1,
+    linear2,
+    linear3,
     complete,
     temp1
 } DO_STATUS;
@@ -137,8 +141,10 @@ class MoveController
       return mTdo_ready_;
     }
 
-    void getArtagError(float & e_theta, float e_x, float & ar_dist,bool &  online_flag);
+    void getArtagError(float & e_theta, float e_y, float & ar_dist,bool &  online_flag);
 
+    void update_goal_theta(float angle_delta);
+    void update_goal_all(float angle_delta,float distance);
   private:
     //d->b->c->o
     boost::mutex mMutex_armark;
@@ -273,6 +279,8 @@ class MoveController
     float Tdo_x_;
     float Tdo_y_;
     float Tdo_z_;
+
+    float last_e_y_;
 
 };
 
