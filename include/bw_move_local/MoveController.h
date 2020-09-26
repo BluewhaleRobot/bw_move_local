@@ -122,6 +122,7 @@ class MoveController
       boost::mutex::scoped_lock lock(mMutex_armark);
       mTdo_ready_ = false;
       use_artag_ref_ready_ = false;
+      resetTdo_flag_ = true;
     }
 
     bool isTdb_ready()
@@ -264,6 +265,15 @@ class MoveController
     float center14_[3];
     float center_[2];
     bool mRobot_pose_boxedge_ready_;
+
+    bool resetTdo_flag_;
+    float Tdo_roll_;
+    float Tdo_pitch_;
+    float Tdo_yaw_;
+    float Tdo_x_;
+    float Tdo_y_;
+    float Tdo_z_;
+    
 };
 
 }  // namespace bw_auto_dock

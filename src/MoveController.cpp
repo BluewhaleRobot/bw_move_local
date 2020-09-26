@@ -360,6 +360,13 @@ MoveController::MoveController(std::string name):as_(nh_, name, boost::bind(&Mov
       mTcb_ = mTbc_.inv();
     }
 
+    resetTdo_flag_ = false;
+    Tdo_roll_ = 0;
+    Tdo_pitch_ = 0;
+    Tdo_yaw_ = 0;
+    Tdo_x_ = 0;
+    Tdo_y_ = 0;
+    Tdo_z_ = 0;
     as_.start();
 }
 
@@ -1633,38 +1640,84 @@ void MoveController::updateMarkerPose(const ar_track_alvar_msgs::AlvarMarkers& c
         boost::mutex::scoped_lock lock1(mMutex_armark);
         boost::mutex::scoped_lock lock2(mMutex_pose);
 
+        double roll, pitch, yaw;
+
         mTco_.at<float>(0, 3) = marker_msg.pose.pose.position.x;
         mTco_.at<float>(1, 3) = marker_msg.pose.pose.position.y;
         mTco_.at<float>(2, 3) = marker_msg.pose.pose.position.z;
-        tf::Matrix3x3 Rbc(tf::Quaternion(marker_msg.pose.pose.orientation.x, marker_msg.pose.pose.orientation.y, marker_msg.pose.pose.orientation.z, marker_msg.pose.pose.orientation.w));
-        double roll, pitch, yaw;
-        Rbc.getRPY(roll, pitch, yaw);
-        Rbc.setRPY(roll, pitch, 0); //z轴旋转角度强制为0
+        tf::Matrix3x3 Rco(tf::Quaternion(marker_msg.pose.pose.orientation.x, marker_msg.pose.pose.orientation.y, marker_msg.pose.pose.orientation.z, marker_msg.pose.pose.orientation.w));
         for (int i = 0; i < 3; i++)
         {
-            tf::Vector3 v = Rbc.getColumn(i);
+            tf::Vector3 v = Rco.getColumn(i);
             mTco_.at<float>(0, i) = v.getX();
             mTco_.at<float>(1, i) = v.getY();
             mTco_.at<float>(2, i) = v.getZ();
         }
+        cv::Mat Toc = mTco_.inv();
+        tf::Matrix3x3 Roc(Toc.at<float>(0, 0), Toc.at<float>(0, 1), Toc.at<float>(0, 2),
+                          Toc.at<float>(1, 0), Toc.at<float>(1, 1), Toc.at<float>(1, 2),
+                          Toc.at<float>(2, 0), Toc.at<float>(2, 1), Toc.at<float>(2, 2));
+        Roc.getRPY(roll, pitch, yaw);
+        Roc.setRPY(roll, pitch, 0); //z轴旋转角度强制为0
+        for (int i = 0; i < 3; i++)
+        {
+            tf::Vector3 v = Roc.getColumn(i);
+            Toc.at<float>(0, i) = v.getX();
+            Toc.at<float>(1, i) = v.getY();
+            Toc.at<float>(2, i) = v.getZ();
+        }
+        mTco_ = Toc.inv();
         mTbo_ = mTbc_ * mTco_ * mToo_;
-        mTdo_ = mTdb_ * mTbo_;
+        cv::Mat Tdo_now = mTdb_ * mTbo_;
+        tf::Matrix3x3 Rdo(Tdo_now.at<float>(0, 0), Tdo_now.at<float>(0, 1), Tdo_now.at<float>(0, 2),
+                          Tdo_now.at<float>(1, 0), Tdo_now.at<float>(1, 1), Tdo_now.at<float>(1, 2),
+                          Tdo_now.at<float>(2, 0), Tdo_now.at<float>(2, 1), Tdo_now.at<float>(2, 2));
+        Rdo.getRPY(roll, pitch, yaw);
+        if(resetTdo_flag_)
+        {
+          resetTdo_flag_ = false;
+          Tdo_roll_ = roll;
+          Tdo_pitch_ = pitch;
+          Tdo_yaw_ = yaw;
+          Tdo_x_ = Tdo_now.at<float>(0, 3);
+          Tdo_y_ = Tdo_now.at<float>(1, 3);
+          Tdo_z_ = Tdo_now.at<float>(2, 3);
+        }
+        else
+        {
+          Tdo_roll_ = 0.5*Tdo_roll_ + 0.5*roll;
+          Tdo_pitch_ = 0.5*Tdo_pitch_ + 0.5*pitch;
+          Tdo_yaw_ = 0.5*Tdo_yaw_ + 0.5*yaw;
+          Tdo_x_ = 0.5*Tdo_x_ + 0.5*Tdo_now.at<float>(0, 3);
+          Tdo_y_ = 0.5*Tdo_y_ + 0.5*Tdo_now.at<float>(1, 3);
+          Tdo_z_ = 0.5*Tdo_z_ + 0.5*Tdo_now.at<float>(2, 3);
+        }
+        Rdo.setRPY(Tdo_roll_,Tdo_pitch_,Tdo_yaw_);
+        for (int i = 0; i < 3; i++)
+        {
+            tf::Vector3 v = Rdo.getColumn(i);
+            mTdo_.at<float>(0, i) = v.getX();
+            mTdo_.at<float>(1, i) = v.getY();
+            mTdo_.at<float>(2, i) = v.getZ();
+        }
+        mTdo_.at<float>(0, 3) = Tdo_x_ ;
+        mTdo_.at<float>(1, 3) = Tdo_y_ ;
+        mTdo_.at<float>(2, 3) = Tdo_z_ ;
+
         mTdo_ready_ = true;
         last_armarktime_ = ros::WallTime::now();
-        tf::Matrix3x3 Rbc_temp(mTbo_.at<float>(0, 0), mTbo_.at<float>(0, 1), mTbo_.at<float>(0, 2),
+
+        mTbo_ = mTdb_.inv()*mTdo_;
+        tf::Matrix3x3 Rbo(mTbo_.at<float>(0, 0), mTbo_.at<float>(0, 1), mTbo_.at<float>(0, 2),
                                mTbo_.at<float>(1, 0), mTbo_.at<float>(1, 1), mTbo_.at<float>(1, 2),
                                mTbo_.at<float>(2, 0), mTbo_.at<float>(2, 1), mTbo_.at<float>(2, 2));
-        Rbc_temp.getRPY(roll, pitch, yaw);
-        ROS_DEBUG("artag bo %f %f %f, %f %f %f", mTbo_.at<float>(0, 3),mTbo_.at<float>(1, 3),mTbo_.at<float>(2, 3), roll, pitch, yaw);
-        float tbo_x = mTbo_.at<float>(0,3);
-        float tbo_y = mTbo_.at<float>(1,3);
-        float e_theta = - tbo_y/std::sqrt(tbo_x*tbo_x + tbo_y*tbo_y);
+        Rbo.getRPY(roll, pitch, yaw);
+
         cv::Mat Tob = mTbo_.inv();
-        tf::Matrix3x3 Rcb_temp(Tob.at<float>(0, 0), Tob.at<float>(0, 1), Tob.at<float>(0, 2),
+        tf::Matrix3x3 Rob(Tob.at<float>(0, 0), Tob.at<float>(0, 1), Tob.at<float>(0, 2),
                                Tob.at<float>(1, 0), Tob.at<float>(1, 1), Tob.at<float>(1, 2),
                                Tob.at<float>(2, 0), Tob.at<float>(2, 1), Tob.at<float>(2, 2));
-        Rcb_temp.getRPY(roll, pitch, yaw);
-        ROS_DEBUG("artag ob %f %f %f, %f %f %f", Tob.at<float>(0, 3),Tob.at<float>(1, 3),Tob.at<float>(2, 3), roll, pitch, yaw);
+        Rob.getRPY(roll, pitch, yaw);
         ROS_ERROR("bo %f %f %f, ob %f %f %f %f %f %f",mTbo_.at<float>(0, 3),mTbo_.at<float>(1, 3),mTbo_.at<float>(2, 3),Tob.at<float>(0, 3),Tob.at<float>(1, 3),Tob.at<float>(2, 3),roll, pitch, yaw);
       }
     }
