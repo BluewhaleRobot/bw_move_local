@@ -627,7 +627,8 @@ bool MoveController::doMove()
         {
             float diff_theta,ar_dist;
             bool online_flag = true;
-            getArtagError(diff_theta, ar_dist,online_flag);
+            float e_x = 0;
+            getArtagError(diff_theta, e_x, ar_dist,online_flag);
             if(std::fabs(diff_theta) <= theta_torelance_ )
             {
                 //角度误差已经满足要求，或者目标是前进
@@ -689,8 +690,9 @@ bool MoveController::doMove()
             use_artag_ref_ready_ = true;
             float ar_dist;
             bool online_flag = false;
+            float e_x;
             ROS_DEBUG("linear1.1.-1 %f %f",diff_theta,diff_distance);
-            getArtagError(diff_theta, ar_dist, online_flag);
+            getArtagError(diff_theta, e_x, ar_dist, online_flag);
             ROS_DEBUG("linear1.1.-2 %f %f %f",diff_theta,diff_distance,ar_dist);
             if(std::fabs(diff_distance) <= x_torelance_ || (diff_distance*current_goal_.distance)<0.0001 || (current_goal_.distance <0 &&ar_dist < artag_min_dist_))
             {
@@ -895,38 +897,34 @@ void MoveController::getThetaError(float & e_theta)
     return ;
 }
 
-void MoveController::getArtagError(float & e_theta, float & ar_dist ,bool &  online_flag)
+void MoveController::getArtagError(float & e_theta, float e_x, float & ar_dist, bool &  online_flag)
 {
+  //e_theta = -Tbo_y
+  //e_x 二维码中垂面与base_link的x轴交点坐标，用来表示车需要直线移动多少距离才可以进入中线
+  //ar_dist 摄像头到二维码平面的距离
+  //online_flag base_link原点是否在二维码中垂面设定距离范围内
   cv::Mat Tbo = getTbo();
   cv::Mat Tob = Tbo.inv();
   cv::Mat Tco = getTco();
   cv::Mat Toc = Tco.inv();
   ar_dist = std::fabs(Toc.at<float>(2,3)); //
-  float Tob_x = Tob.at<float>(0,3);
-  if(std::fabs(Tob_x)<artag_line_width_ || online_flag)
+
+  float Tbo_x = Tbo.at<float>(0,3);
+  float Tbo_y = Tbo.at<float>(1,3);
+
+  e_theta = - Tbo_y;
+
+  e_x = Tbo_x - Tbo_y * (Tbo.at<float>(0,2) / Tbo.at<float>(1,2));
+
+  if(std::fabs(e_x)<artag_line_width_ || online_flag)
   {
     online_flag = true;
-    //在直线线宽范围内
-    // float x = Tbo.at<float>(0,3);
-    // float y = Tbo.at<float>(1,3);
-    // e_theta = - y/std::sqrt(x*x + y*y);
     double roll, pitch, yaw;
     tf::Matrix3x3 Rbo(Tbo.at<float>(0, 0), Tbo.at<float>(0, 1), Tbo.at<float>(0, 2),
                                Tbo.at<float>(1, 0), Tbo.at<float>(1, 1), Tbo.at<float>(1, 2),
                                Tbo.at<float>(2, 0), Tbo.at<float>(2, 1), Tbo.at<float>(2, 2));
     Rbo.getRPY(roll, pitch, yaw);
     e_theta = yaw - m_pi/2.0;
-  }
-  else
-  {
-    online_flag = false;
-    //在直线线宽范围外
-    e_theta = Tob_x;
-    if(current_goal_.distance>0)
-    {
-      //如果是前进，则需要反转控制量
-      e_theta = -e_theta;
-    }
   }
 
 }

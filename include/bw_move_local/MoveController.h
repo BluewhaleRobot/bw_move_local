@@ -137,7 +137,7 @@ class MoveController
       return mTdo_ready_;
     }
 
-    void getArtagError(float & e_theta, float & ar_dist,bool &  online_flag);
+    void getArtagError(float & e_theta, float e_x, float & ar_dist,bool &  online_flag);
 
   private:
     //d->b->c->o
@@ -273,7 +273,7 @@ class MoveController
     float Tdo_x_;
     float Tdo_y_;
     float Tdo_z_;
-    
+
 };
 
 }  // namespace bw_auto_dock
