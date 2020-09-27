@@ -105,7 +105,10 @@ class MoveController
     {
       boost::mutex::scoped_lock lock1(mMutex_armark);
       boost::mutex::scoped_lock lock2(mMutex_pose);
-      mTbo_ =  mTdb_.inv()*mTdo_;
+      cv::Mat Tbo =  mTdb_.inv()*mTdo_;
+
+      ROS_ERROR("bo %f %f %f, mbo  %f %f %f",Tbo.at<float>(0, 3),Tbo.at<float>(1, 3),Tbo.at<float>(2, 3),mTbo_.at<float>(0, 3),mTbo_.at<float>(1, 3),mTbo_.at<float>(2, 3));
+      mTbo_ = Tbo.clone();
       return mTbo_.clone();
     }
 
@@ -141,7 +144,7 @@ class MoveController
       return mTdo_ready_;
     }
 
-    void getArtagError(float & e_theta, float e_y, float & ar_dist,bool &  online_flag);
+    void getArtagError(float & e_theta, float & e_y, float & ar_dist,bool &  online_flag);
 
     void update_goal_theta(float angle_delta);
     void update_goal_all(float angle_delta,float distance);

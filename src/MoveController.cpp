@@ -420,6 +420,7 @@ void MoveController::executeCB(const galileo_msg::LocalMoveGoalConstPtr &goal)
         ROS_DEBUG("oups4");
         if(!doMove())
         {
+          ROS_DEBUG("oups4.1");
             //移动失败，需要设为abort
             //如果进洞距离大于inbox_distance_set_，则认为已经到达目标
             if(inbox_distance_>=inbox_distance_set_)
@@ -435,6 +436,7 @@ void MoveController::executeCB(const galileo_msg::LocalMoveGoalConstPtr &goal)
             }
             break;
         }
+        ROS_DEBUG("oups4.2");
         if(isgoal_reached())
         {
             ROS_DEBUG("oups7");
@@ -556,7 +558,7 @@ void MoveController::update_goal_all(float angle_delta,float distance)
 bool MoveController::doMove()
 {
     boost::mutex::scoped_lock lock(mMutex_move);
-
+    ROS_DEBUG("do move 1");
     geometry_msgs::Twist current_vel;
     switch (mdo_status_)
     {
@@ -631,7 +633,7 @@ bool MoveController::doMove()
                 if(current_vel.angular.z>0 && !rot_uncounter_enable_) current_vel.angular.z=0;
                 if(current_vel.angular.z<0 && !rot_counter_enable_) current_vel.angular.z=0;
                 mCmdvelPub_.publish(current_vel);
-
+                ROS_DEBUG("rotate1.2 %f %f ",diff_theta,current_vel.angular.z);
                 if((!rot_uncounter_enable_  && current_goal_.angle >0) || (!rot_counter_enable_  && current_goal_.angle <0))
                 {
                   error_theta_last_ = 0;
@@ -671,7 +673,15 @@ bool MoveController::doMove()
             if(std::fabs(diff_theta) <= theta_torelance_ )
             {
                 //角度误差已经满足要求
-                ROS_DEBUG("rotate2.1 %f %f ",diff_theta,theta_torelance_);
+                ROS_ERROR("rotate2.1 %f %f %f",diff_theta,theta_torelance_, e_y);
+                current_vel.linear.x = 0;
+                current_vel.linear.y = 0;
+                current_vel.linear.z = 0;
+                current_vel.angular.x = 0;
+                current_vel.angular.y = 0;
+                current_vel.angular.z = 0;
+                mCmdvelPub_.publish(current_vel);
+                ros::Duration(0.3).sleep(); //延时200ms，让直线运动更准同时识别二维码。
                 error_theta_last_ = 0;
                 error_theta_sum_ = 0;
                 error_x_last_ = 0;
@@ -687,23 +697,16 @@ bool MoveController::doMove()
                   //先转90度
                   if(e_y > 0)
                   {
-                    update_goal_all(m_pi/2.0,e_y);
+                    update_goal_all(-m_pi/2.0,e_y);
                   }
                   else
                   {
-                    update_goal_all(-m_pi/2.0,-e_y);
+                    update_goal_all(m_pi/2.0,-e_y);
                   }
                   last_e_y_ = e_y;
                   mdo_status_ = DO_STATUS::rotate3;
 
                 }
-                current_vel.linear.x = 0;
-                current_vel.linear.y = 0;
-                current_vel.linear.z = 0;
-                current_vel.angular.x = 0;
-                current_vel.angular.y = 0;
-                current_vel.angular.z = 0;
-                mCmdvelPub_.publish(current_vel);
             }
             else
             {
@@ -778,7 +781,7 @@ bool MoveController::doMove()
                 if(current_vel.angular.z>0 && !rot_uncounter_enable_) current_vel.angular.z=0;
                 if(current_vel.angular.z<0 && !rot_counter_enable_) current_vel.angular.z=0;
                 mCmdvelPub_.publish(current_vel);
-
+                ROS_DEBUG("rotate3.2 %f %f ",diff_theta,current_vel.angular.z);
                 if((!rot_uncounter_enable_  && current_goal_.angle >0) || (!rot_counter_enable_  && current_goal_.angle <0))
                 {
                   error_theta_last_ = 0;
@@ -819,7 +822,7 @@ bool MoveController::doMove()
             if(std::fabs(diff_theta) <= theta_torelance_ )
             {
                 //角度误差已经满足要求
-                ROS_DEBUG("rotate4.1 %f %f ",diff_theta,theta_torelance_);
+                ROS_ERROR("rotate4.1 %f %f ",diff_theta,theta_torelance_);
                 x_goal_reached_ = true;
                 error_theta_last_ = 0;
                 error_theta_sum_ = 0;
@@ -872,7 +875,7 @@ bool MoveController::doMove()
             diff_theta = -diff_theta;
           }
           ROS_DEBUG("linear1.1 %f %f",diff_theta,diff_distance);
-          if(use_artag_ref_ && (isTdo_ready() || use_artag_ref_ready_))
+          if(use_artag_ref_ && (isTdo_ready() || use_artag_ref_ready_) && current_goal_.distance < 0)
           {
             use_artag_ref_ready_ = true;
             ROS_DEBUG("linear1.1.0 ");
@@ -1062,6 +1065,7 @@ bool MoveController::doMove()
             current_vel.angular.y = 0;
 
             mCmdvelPub_.publish(current_vel);
+            ROS_ERROR("linear2.1.1 %f %f %f",diff_theta,error_theta_sum_,current_vel.angular.z);
           }
           error_theta_last_ = diff_theta;
           error_x_last_ = diff_distance;
@@ -1088,11 +1092,11 @@ bool MoveController::doMove()
               //先转90度
               if(last_e_y_ > 0)
               {
-                update_goal_all(-m_pi/2.0, current_goal_.distance);
+                update_goal_all(m_pi/2.0, current_goal_.distance);
               }
               else
               {
-                update_goal_all(m_pi/2.0, current_goal_.distance);
+                update_goal_all(-m_pi/2.0, current_goal_.distance);
               }
               mdo_status_ = DO_STATUS::rotate1;//回到第一步
               current_vel.linear.x = 0;
@@ -1216,7 +1220,7 @@ void MoveController::getThetaError(float & e_theta)
     return ;
 }
 
-void MoveController::getArtagError(float & e_theta, float e_y, float & ar_dist, bool &  online_flag)
+void MoveController::getArtagError(float & e_theta, float & e_y, float & ar_dist, bool &  online_flag)
 {
   //e_theta = -Tbo_y
   //e_x 二维码中垂面与base_link的x轴交点坐标，用来表示车需要直线移动多少距离才可以进入中线
@@ -2011,12 +2015,13 @@ void MoveController::updateMarkerPose(const ar_track_alvar_msgs::AlvarMarkers& c
         }
         else
         {
-          Tdo_roll_ = 0.8*Tdo_roll_ + 0.2*roll;
-          Tdo_pitch_ = 0.8*Tdo_pitch_ + 0.2*pitch;
-          Tdo_yaw_ = 0.8*Tdo_yaw_ + 0.2*yaw;
-          Tdo_x_ = 0.8*Tdo_x_ + 0.2*Tdo_now.at<float>(0, 3);
-          Tdo_y_ = 0.8*Tdo_y_ + 0.2*Tdo_now.at<float>(1, 3);
-          Tdo_z_ = 0.8*Tdo_z_ + 0.2*Tdo_now.at<float>(2, 3);
+          float a = 0.1, b= 1-a;
+          Tdo_roll_ = a*Tdo_roll_ + b*roll;
+          Tdo_pitch_ = a*Tdo_pitch_ + b*pitch;
+          Tdo_yaw_ = a*Tdo_yaw_ + b*yaw;
+          Tdo_x_ = a*Tdo_x_ + b*Tdo_now.at<float>(0, 3);
+          Tdo_y_ = a*Tdo_y_ + b*Tdo_now.at<float>(1, 3);
+          Tdo_z_ = a*Tdo_z_ + b*Tdo_now.at<float>(2, 3);
         }
         Rdo.setRPY(Tdo_roll_,Tdo_pitch_,Tdo_yaw_);
         for (int i = 0; i < 3; i++)
@@ -2049,7 +2054,7 @@ void MoveController::updateMarkerPose(const ar_track_alvar_msgs::AlvarMarkers& c
         // Tob.at<float>(0, 3),Tob.at<float>(1, 3),Tob.at<float>(2, 3),
         // roll, pitch, yaw,roll2, pitch2, yaw2);
         ROS_DEBUG("bo %f %f %f ,error %f ",mTbo_.at<float>(0, 3),mTbo_.at<float>(1, 3),mTbo_.at<float>(2, 3), yaw-m_pi/2.0);
-        ROS_DEBUG("ob %f %f %f ",Tob.at<float>(0, 3),Tob.at<float>(1, 3),Tob.at<float>(2, 3));
+        ROS_DEBUG("ob %f %f %f ,id %d",Tob.at<float>(0, 3),Tob.at<float>(1, 3),Tob.at<float>(2, 3),marker_msg.id);
       }
     }
 }

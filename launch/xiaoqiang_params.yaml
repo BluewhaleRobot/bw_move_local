@@ -38,13 +38,13 @@ MoveLocal:
     #二维码相关
     use_artag_ref: true #前进或后退时，如果摄像头检测到二维码，则控制车在二维码标识的直线上运动。
     camera_id: 1 #0表示前摄像头 1表示后摄像头 摄像头外参数在setting5_multi.yaml
-    artag_line_width: 0.1 #如果车在二维码标识的直线线宽范围内则进行角度对准保持控制，超出范围则控制回到线上
-    artag_min_dist: 0.1 #摄像头与二维码平面之间允许的最短距离
+    artag_line_width: 0.05 #如果车在二维码标识的直线线宽范围内则进行角度对准保持控制，超出范围则控制回到线上
+    artag_min_dist: 0.18 #摄像头与二维码平面之间允许的最短距离
     
     artag_x_offset: 0
     artag_y_offset: 0
     #控制车回到线上的pid参数
-    kp_line: 0.4
+    kp_line: 1.4
     kd_line: 0.8
     ki_line: 1.0
 
